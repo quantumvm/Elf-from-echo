@@ -1,0 +1,233 @@
+#!/bin/bash
+
+/bin/date
+echo "Starting Build"
+
+#Exit if we don't have a file to save to
+if [ $# -eq 0 ]; then
+	echo "Use: elfFromScratch [name of file]"
+	exit 1
+fi
+
+echo "Saving results to file: $1"
+echo -e "\nConstructing elf header..."
+
+#Elf magic numbers
+echo -en "\x7fELF" >> $1
+
+#Is 32 bit elf file
+echo -en "\x01" >> $1
+
+#Is big endian
+echo -en "\x01" >> $1
+
+#Original elf format
+echo -en "\x01" >> $1
+
+#Target operating system linux (we could leave this zero)
+echo -en "\x03" >> $1
+
+#We are conforming to the application binary interface specified above
+#you will see this as ABI in man pages. For syscalls etc.
+echo -en "\x00" >> $1
+
+#seven bytes of padding
+echo -en "\x00\x00\x00\x00\x00\x00\x00" >> $1
+
+#This will be an executable file
+echo -en "\x02\x00" >> $1
+
+#We are targeting x86
+echo -en "\x03\x00" >> $1
+
+#This is the original version of an elf (some things just don't change ;))
+echo -en "\x01\x00\x00\x00" >> $1
+
+#Since we are compiling this program from scratch we can start
+#wherever we want in memory. Lets stick with something normalish like
+#0x08048000 we also need to add a4 to this to start at the actual 
+#instructions KEEP IN MIND LITTLE ENDIANNESS
+echo -en "\xa4\x80\x04\x08" >> $1
+
+#We will need a program header table. Start it right after the header
+#file (52nd byte = 34 hex) because why waist space.
+echo -en "\x34\x00\x00\x00" >> $1
+
+#We also need a section header table. This is normally after the text
+#segment but because we are compiling things by hand lets just stick it
+#after the program header for the lulz.
+echo -en "\x54\x00\x00\x00" >> $1
+
+#set the eflags. Man pages say "Currently no flags have been defined"
+#lets just pad this with 0s then
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Since we are on 32bits we are using a 52 byte elf header (0x34)
+echo -en "\x34\x00" >> $1
+
+#The size of a single program header struct is going to be 32 bytes
+#(0x20)
+echo -en "\x20\x00" >> $1
+
+#The number of entries in the program header table we will just use
+#1 huge block of executable/writeable/readable memory. Time to live 
+#life on the edge!
+echo -en "\x01\x00" >> $1
+
+#The size of the section header table struct. We will make this 
+#40 bytes (0x28)
+echo -en "\x28\x00" >> $1
+
+#We will have two section header table entries. One will contain the
+#section header names and the other will have our actual instructions.
+echo -en "\x02\x00" >> $1
+
+#Lets put the put the section header names in the second section header
+#struct. Keeping in mind indexing starts at 0 of course.
+echo -en "\x01\x00" >> $1
+
+
+#########################PROGRAM HEADER TABLE#########################
+#Every entry of the struct should be four bytes large according to the
+#manual.
+
+echo "Constructing program header table"
+
+#Make this program header loaded from a file
+echo -en "\x01\x00\x00\x00" >> $1
+
+#Lets just load the entire executable into memory starting at 00000000
+#The actual offset of the instructions in the file though is below.
+#offset_of_instructions = 0x34 + 0x20 + 0x28 + 0x28
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Start this data being loaded into memory at 08048000 because thats 
+#a pretty normal starting address
+echo -en "\x00\x80\x04\x08" >> $1
+
+#Most elf files seem to set the physical addressing value to the virtual
+#address value
+echo -en "\x00\x80\x04\x08" >> $1
+
+#Since we are a bit lazy the in memory size will just be the same size
+#as the file. We are loading the entire file into memory.
+echo -en "\xEE\x00\x00\x00" >> $1
+
+#Our file size should be the same as the memory size here
+echo -en "\xEE\x00\x00\x00" >> $1
+
+#Lets set everything to read write execute (What could possibly go wrong?)
+#cough.. cough... cough..
+echo -en "\x07\x00\x00\x00" >> $1
+
+#Lets align things to a page size
+echo -en "\x00\x10\x00\x00" >> $1
+
+#########################SECTION HEADER TABLE 1#########################
+#All fields of the section header struct should be 32 bits according
+#to the manual. Although the name has been just nulled out, this section
+#will just act as the text section of the program.
+
+#since this is the first section header its name will just start at 
+#0 in the names array.
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Lets set the SHT_PROGBITS type defined in the manual
+echo -en "\x01\x00\x00\x00" >> $1
+
+#Lets set the flags to read write excute again because why not cough..
+#cough...
+echo -en "\x07\x00\x00\x00" >> $1
+
+#This section should start at the same spot as our instructions
+echo -en "\xA4\x80\x04\x08" >> $1
+
+#This offset should start at the same offset our instructions start
+echo -en "\xA4\x00\x00\x00" >> $1
+
+#This section will only include the size of our program. (0x21)
+echo -en "\x2B\x00\x00\x00" >> $1
+
+#Null out link
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Null out info
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Align things to a word
+echo -en "\x10\x00\x00\x00" >> $1
+
+#Null out fixed-sized entries
+echo -en "\x00\x00\x00\x00" >> $1
+
+#########################SECTION HEADER TABLE 2#########################
+#This is the section header for the names. We don't really care about
+#the names though.
+
+#Name of section index (just start at 0x01 because who cares)
+echo -en "\x01\x00\x00\x00" >> $1
+
+#Will be of type string table
+echo -en "\x03\x00\x00\x00" >> $1
+
+#Lets not set any flags here
+echo -en "\x00\x00\x00\x00" >> $1
+
+#No address because not loaded into memory
+echo -en "\x00\x00\x00\x00" >> $1
+
+#The offset should be after our regular program instructions. Elf header,
+#Program header, Section header *2, Text instructions
+#string_table_offset = 0x34 + 0x20 + 0x28 + 0x28 + 0x2B
+echo -en "\xCF\x00\x00\x00" >> $1
+
+#The size is going to be 32 bytes
+echo -en "\x20\x00\x00\x00" >> $1
+
+#Null Link
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Null info
+echo -en "\x00\x00\x00\x00" >> $1
+
+#Align to 1
+echo -en "\x01\x00\x00\x00" >> $1
+
+#Null out fixed sized entries
+echo -en "\x00\x00\x00\x00" >> $1
+
+
+#########################PROGRAM INSTRUCTIONS#########################
+#push   $0xa
+echo -en "\x6a\x0a" >> $1
+#push   $0x21646c72
+echo -en "\x68\x72\x6c\x64\x21" >> $1
+#push   $0x6f77206f
+echo -en "\x68\x6f\x20\x77\x6f" >> $1
+#push   $0x6c6c6568
+echo -en "\x68\x68\x65\x6c\x6c" >> $1
+
+#mov    $0xd,%edx
+echo -en "\xba\x0d\x00\x00\x00" >> $1
+#mov    %esp,%ecx
+echo -en "\x89\xe1" >> $1
+#mov    $0x1,%ebx
+echo -en "\xbb\x01\x00\x00\x00" >> $1
+#mov    $0x4,%eax
+echo -en "\xb8\x04\x00\x00\x00" >> $1
+
+#int    $0x80
+echo -en "\xcd\x80" >> $1
+
+#mov    $0x1,%eax
+echo -en "\xb8\x01\x00\x00\x00" >> $1
+#int    $0x80
+echo -en "\xcd\x80" >> $1
+
+#########################SECTION NAMES#########################
+
+echo -en "\x00\x00\x00\x00\x00\x00\x00\x00" >> $1
+echo -en "\x00\x00\x00\x00\x00\x00\x00\x00" >> $1
+echo -en "\x00\x00\x00\x00\x00\x00\x00\x00" >> $1
+echo -en "\x00\x00\x00\x00\x00\x00\x00\x00" >> $1
+
